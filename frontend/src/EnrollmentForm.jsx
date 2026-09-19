@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { apiUrl } from './api'
 
 const initialForm = {
   studentMode: 'existing',
@@ -67,7 +68,7 @@ function EnrollmentForm({ onCreated }) {
       setCoursesLoading(true)
 
       try {
-        const response = await fetch('/api/courses/options', {
+        const response = await fetch(apiUrl('/api/courses/options'), {
           headers: { Accept: 'application/json' },
           signal: controller.signal,
         })
@@ -254,7 +255,7 @@ function EnrollmentForm({ onCreated }) {
     }
 
     try {
-      const response = await fetch('/api/enrollments', {
+      const response = await fetch(apiUrl('/api/enrollments'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

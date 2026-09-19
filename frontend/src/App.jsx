@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import EnrollmentForm from './EnrollmentForm'
 import EnrollmentActions from './EnrollmentActions'
 import AdvancedQuery from './AdvancedQuery'
+import { apiUrl } from './api'
 
 const columns = [
   { key: 'student_nim', label: 'NIM' },
@@ -81,7 +82,7 @@ function App() {
       setError('')
 
       try {
-        const response = await fetch(`/api/enrollments?${buildParams()}`, {
+        const response = await fetch(apiUrl(`/api/enrollments?${buildParams()}`), {
           headers: { Accept: 'application/json' },
           signal: controller.signal,
         })
@@ -151,7 +152,11 @@ function App() {
             <h1>Daftar KRS Mahasiswa</h1>
             <p>Kelola pengambilan mata kuliah dalam satu halaman.</p>
           </div>
-          <a className="button button-outline" href={`/api/enrollments/export?${buildParams(false)}`} onClick={confirmExport}>
+          <a
+            className="button button-outline"
+            href={apiUrl(`/api/enrollments/export?${buildParams(false)}`)}
+            onClick={confirmExport}
+          >
             <span aria-hidden="true">↓</span> Unduh CSV
           </a>
         </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { apiUrl } from './api'
 
 function firstError(errors, field) {
   const messages = errors[field]
@@ -111,7 +112,7 @@ function EnrollmentActions({ row, onChanged }) {
     setActionError('')
 
     try {
-      const response = await fetch(`/api/enrollments/${row.id}`, {
+      const response = await fetch(apiUrl(`/api/enrollments/${row.id}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -149,7 +150,7 @@ function EnrollmentActions({ row, onChanged }) {
     setActionError('')
 
     try {
-      const response = await fetch(`/api/enrollments/${row.id}`, {
+      const response = await fetch(apiUrl(`/api/enrollments/${row.id}`), {
         method: 'DELETE',
         headers: { Accept: 'application/json' },
       })
