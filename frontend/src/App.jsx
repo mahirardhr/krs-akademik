@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import EnrollmentForm from './EnrollmentForm'
 import EnrollmentActions from './EnrollmentActions'
 import AdvancedQuery from './AdvancedQuery'
@@ -29,7 +29,7 @@ function App() {
   const [sortBy, setSortBy] = useState('')
   const [direction, setDirection] = useState('asc')
 
-  function buildParams(includePage = true) {
+  const buildParams = useCallback((includePage = true) => {
     const params = new URLSearchParams()
 
     if (includePage) {
@@ -62,7 +62,7 @@ function App() {
     })
 
     return params
-  }
+  }, [page, pageSize, search, status, semester, sortBy, direction, advanced])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -105,7 +105,7 @@ function App() {
     loadEnrollments()
 
     return () => controller.abort()
-  }, [page, pageSize, search, status, semester, sortBy, direction, refreshKey, advanced])
+  }, [buildParams, refreshKey])
 
   function handleSort(column) {
     if (sortBy === column) {

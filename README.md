@@ -104,6 +104,68 @@ API ekspor memakai filter yang sama dengan daftar, tetapi tidak membatasi hasil 
 
 Primary key serta indeks pada NIM, email, kode mata kuliah, dan gabungan tahun ajaran/semester/status/id dibuat oleh migration. Pencarian `ILIKE` dengan wildcard di depan dan sort join tertentu dapat lebih lambat pada 5 juta baris; pengukuran query dan indeks tambahan perlu disesuaikan dengan beban server deployment. Ekspor 5 juta baris juga membutuhkan waktu, ruang disk di sisi penerima, dan koneksi HTTP yang cukup lama. Excel biasa tidak dapat menampilkan 5 juta baris dalam satu sheet; periksa file dengan alat yang mendukung file besar.
 
+## Non-Functional Requirements
+
+### Performa
+
+Aplikasi diuji menggunakan PostgreSQL dengan 5.000.000 baris pada tabel
+`enrollments`, 50.002 baris pada tabel `students`, dan 102 baris pada tabel
+`courses`.
+
+Hasil pengujian lokal:
+
+| Operasi | Waktu respons |
+|---|---:|
+| Membuka halaman pertama (25 data) | ±975 ms |
+| Filter status dan semester | ±595 ms |
+| Pencarian mahasiswa | ±1.685 ms |
+| Sorting nama mahasiswa | ±926 ms |
+
+Hasil pengujian dapat berbeda tergantung perangkat, konfigurasi PostgreSQL,
+dan kondisi cache database.
+
+Strategi performa yang digunakan:
+
+- Pagination dijalankan di backend menggunakan parameter `page` dan `page_size`.
+- Jumlah data yang dikirim ke frontend dibatasi maksimal 100 baris per halaman.
+- Kolom relasi dan kolom yang sering digunakan untuk filter memiliki index.
+- PostgreSQL `pg_trgm` dan GIN index digunakan untuk mempercepat pencarian
+  `ILIKE` pada NIM, nama mahasiswa, kode mata kuliah, dan nama mata kuliah.
+- Kolom sorting dibatasi menggunakan whitelist agar aman dan terkontrol.
+- Export CSV menggunakan streaming dan `chunkById()` sehingga data tidak
+  dimuat seluruhnya ke memori aplikasi.
+- Pencarian dilakukan terhadap ID mahasiswa dan mata kuliah terlebih dahulu,
+  kemudian digunakan untuk menyaring data enrollment.
+
+### Keamanan Dasar
+
+- Semua payload Create dan Update divalidasi di backend Laravel.
+- Frontend juga melakukan validasi untuk memberikan umpan balik lebih cepat.
+- Query database menggunakan Laravel Query Builder dan parameter binding.
+- Kolom sorting dan filtering dibatasi dengan whitelist.
+- CORS hanya mengizinkan origin frontend yang tercantum pada
+  `CORS_ALLOWED_ORIGINS`.
+- Konfigurasi production wajib menggunakan `APP_DEBUG=false`.
+- File `.env` tidak disimpan ke Git.
+
+### Kualitas Kode
+
+- Backend diformat menggunakan Laravel Pint.
+- Frontend diperiksa menggunakan Oxlint.
+- Frontend production build diperiksa menggunakan Vite.
+- Error aplikasi dicatat melalui sistem logging Laravel pada
+  `storage/logs/laravel.log`.
+- Controller, migration, seeder, route, dan komponen frontend dipisahkan
+  berdasarkan tanggung jawabnya.
+
+### Error Logging
+
+Laravel menggunakan kanal log `stack` dan `single`. Error backend tersimpan
+pada:
+
+```text`
+storage/logs/laravel.log
+
 ## Build dan deployment
 
 ```powershell

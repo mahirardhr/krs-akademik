@@ -21,6 +21,38 @@ class EnrollmentController extends Controller
         'status' => 'e.status',
     ];
 
+    private const FORM_MESSAGES = [
+        'required' => ':attribute wajib diisi.',
+        'required_if' => ':attribute wajib diisi ketika membuat data baru.',
+        'regex' => 'Format :attribute tidak valid.',
+        'email' => ':attribute harus berupa alamat email yang valid.',
+        'unique' => ':attribute sudah digunakan.',
+        'string' => ':attribute harus berupa teks.',
+        'min.string' => ':attribute minimal :min karakter.',
+        'max.string' => ':attribute maksimal :max karakter.',
+        'max' => ':attribute maksimal :max karakter.',
+        'integer' => ':attribute harus berupa bilangan bulat.',
+        'between' => ':attribute harus antara :min dan :max.',
+        'in' => ':attribute yang dipilih tidak valid.',
+    ];
+
+    private const FORM_ATTRIBUTES = [
+        'student.mode' => 'Pilihan mahasiswa',
+        'student.nim' => 'NIM',
+        'student.name' => 'Nama mahasiswa',
+        'student.email' => 'Email mahasiswa',
+        'course.mode' => 'Pilihan mata kuliah',
+        'course.code' => 'Kode mata kuliah',
+        'course.name' => 'Nama mata kuliah',
+        'course.credits' => 'SKS',
+        'enrollment.academic_year' => 'Tahun ajaran',
+        'enrollment.semester' => 'Semester',
+        'enrollment.status' => 'Status',
+        'academic_year' => 'Tahun ajaran',
+        'semester' => 'Semester',
+        'status' => 'Status',
+    ];
+
     private function validateListRequest(Request $request): array
     {
         return $request->validate([
@@ -68,12 +100,28 @@ class EnrollmentController extends Controller
         }
 
         $search = trim($input['search'] ?? '');
+
         if ($search !== '') {
-            $query->where(function ($q) use ($search) {
-                $pattern = '%' . $search . '%';
-                $q->where('s.nim', 'ILIKE', $pattern)
-                    ->orWhere('s.name', 'ILIKE', $pattern)
-                    ->orWhere('c.code', 'ILIKE', $pattern);
+            $pattern = '%'.$search.'%';
+
+            $query->where(function ($searchQuery) use ($pattern) {
+                $searchQuery
+                    ->whereIn('e.student_id', function ($studentQuery) use ($pattern) {
+                        $studentQuery
+                            ->select('id')
+                            ->from('students')
+                            ->where(function ($studentFilter) use ($pattern) {
+                                $studentFilter
+                                    ->where('nim', 'ILIKE', $pattern)
+                                    ->orWhere('name', 'ILIKE', $pattern);
+                            });
+                    })
+                    ->orWhereIn('e.course_id', function ($courseQuery) use ($pattern) {
+                        $courseQuery
+                            ->select('id')
+                            ->from('courses')
+                            ->where('code', 'ILIKE', $pattern);
+                    });
             });
         }
 
@@ -89,17 +137,20 @@ class EnrollmentController extends Controller
                         $value = trim($filter['value']);
 
                         if ($operator === 'contains') {
-                            $condition->where($column, 'ILIKE', '%' . $value . '%');
+                            $condition->where($column, 'ILIKE', '%'.$value.'%');
+
                             return;
                         }
 
                         if ($operator === 'starts_with') {
-                            $condition->where($column, 'ILIKE', $value . '%');
+                            $condition->where($column, 'ILIKE', $value.'%');
+
                             return;
                         }
 
                         if ($operator === 'equals') {
                             $condition->where($column, '=', $value);
+
                             return;
                         }
 
@@ -127,6 +178,7 @@ class EnrollmentController extends Controller
                                 ]);
                             }
                             $condition->whereIn($column, $values);
+
                             return;
                         }
 
@@ -151,6 +203,7 @@ class EnrollmentController extends Controller
                 }
             });
         }
+
         return $query;
     }
 
@@ -187,13 +240,18 @@ class EnrollmentController extends Controller
                 foreach ($rows as $row) {
                     // Prevent spreadsheet software from evaluating user text as formulas.
                     $values = [
-                        $row->student_nim, $row->student_name,
-                        $row->course_code, $row->course_name,
-                        $row->semester, $row->academic_year, $row->status,
+                        $row->student_nim,
+                        $row->student_name,
+                        $row->course_code,
+                        $row->course_name,
+                        $row->semester,
+                        $row->academic_year,
+                        $row->status,
                     ];
                     $values = array_map(function ($value) {
                         $text = (string) $value;
-                        return preg_match('/^[\s]*[=+\-@]/u', $text) ? "'" . $text : $text;
+
+                        return preg_match('/^[\s]*[=+\-@]/u', $text) ? "'".$text : $text;
                     }, $values);
                     fputcsv($out, $values, ',', '"', '');
                 }
@@ -204,7 +262,7 @@ class EnrollmentController extends Controller
             }, 'e.id', 'id');
 
             fclose($out);
-        }, 'krs-' . date('Y-m-d-His') . '.csv', [
+        }, 'krs-'.date('Y-m-d-His').'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Cache-Control' => 'no-store',
             'X-Accel-Buffering' => 'no',
@@ -214,36 +272,36 @@ class EnrollmentController extends Controller
     public function store(Request $request)
     {
         $data = $request->validate([
-            'student.mode'              => ['required', Rule::in(['existing', 'new'])],
-            'student.nim'               => ['required', 'regex:/^[0-9]{8,12}$/'],
-            'student.name'              => ['required_if:student.mode,new', 'string', 'min:3', 'max:100'],
-            'student.email'             => ['required_if:student.mode,new', 'email', 'max:255'],
+            'student.mode' => ['required', Rule::in(['existing', 'new'])],
+            'student.nim' => ['required', 'regex:/^[0-9]{8,12}$/'],
+            'student.name' => ['required_if:student.mode,new', 'string', 'min:3', 'max:100'],
+            'student.email' => ['required_if:student.mode,new', 'email', 'max:255'],
 
-            'course.mode'               => ['required', Rule::in(['existing', 'new'])],
-            'course.code'               => ['required', 'regex:/^[A-Z]{2,4}[0-9]{3}$/'],
-            'course.name'               => ['required_if:course.mode,new', 'string', 'min:3', 'max:120'],
-            'course.credits'            => ['required_if:course.mode,new', 'integer', 'between:1,6'],
+            'course.mode' => ['required', Rule::in(['existing', 'new'])],
+            'course.code' => ['required', 'regex:/^[A-Z]{2,4}[0-9]{3}$/'],
+            'course.name' => ['required_if:course.mode,new', 'string', 'min:3', 'max:120'],
+            'course.credits' => ['required_if:course.mode,new', 'integer', 'between:1,6'],
 
-            'enrollment.academic_year'  => ['required', 'regex:/^[0-9]{4}\/[0-9]{4}$/'],
-            'enrollment.semester'       => ['required', Rule::in(['GANJIL', 'GENAP'])],
-            'enrollment.status'         => [
+            'enrollment.academic_year' => ['required', 'regex:/^[0-9]{4}\/[0-9]{4}$/'],
+            'enrollment.semester' => ['required', Rule::in(['GANJIL', 'GENAP'])],
+            'enrollment.status' => [
                 'required',
                 Rule::in(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED']),
             ],
-        ]);
+        ], self::FORM_MESSAGES, self::FORM_ATTRIBUTES);
 
         // Aturan unik hanya berlaku jika membuat data baru.
         if ($data['student']['mode'] === 'new') {
             $request->validate([
                 'student.nim' => ['unique:students,nim'],
                 'student.email' => ['unique:students,email'],
-            ]);
+            ], self::FORM_MESSAGES, self::FORM_ATTRIBUTES);
         }
 
         if ($data['course']['mode'] === 'new') {
             $request->validate([
                 'course.code' => ['unique:courses,code'],
-            ]);
+            ], self::FORM_MESSAGES, self::FORM_ATTRIBUTES);
         }
 
         $enrollmentId = DB::transaction(function () use ($data) {
@@ -283,6 +341,21 @@ class EnrollmentController extends Controller
                 ]);
             }
 
+            $duplicate = DB::table('enrollments')
+                ->where('student_id', $studentId)
+                ->where('course_id', $courseId)
+                ->where('academic_year', $data['enrollment']['academic_year'])
+                ->where('semester', $data['enrollment']['semester'])
+                ->exists();
+
+            if ($duplicate) {
+                throw ValidationException::withMessages([
+                    'enrollment' => [
+                        'Mahasiswa sudah mengambil mata kuliah ini pada tahun ajaran dan semester yang sama.',
+                    ],
+                ]);
+            }
+
             return DB::table('enrollments')->insertGetId([
                 'student_id' => $studentId,
                 'course_id' => $courseId,
@@ -297,21 +370,38 @@ class EnrollmentController extends Controller
             'id' => $enrollmentId,
         ], 201);
     }
+
     public function update(Request $request, int $id)
     {
         $data = $request->validate([
             'academic_year' => ['required', 'regex:/^[0-9]{4}\/[0-9]{4}$/'],
-            'semester'      => ['required', Rule::in(['GANJIL', 'GENAP'])],
-            'status'        => [
+            'semester' => ['required', Rule::in(['GANJIL', 'GENAP'])],
+            'status' => [
                 'required',
                 Rule::in(['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED']),
             ],
-        ]);
+        ], self::FORM_MESSAGES, self::FORM_ATTRIBUTES);
 
         $enrollment = DB::table('enrollments')->where('id', $id)->first();
 
         if ($enrollment === null) {
             return response()->json(['message' => 'Data KRS tidak ditemukan.'], 404);
+        }
+
+        $duplicate = DB::table('enrollments')
+            ->where('student_id', $enrollment->student_id)
+            ->where('course_id', $enrollment->course_id)
+            ->where('academic_year', $data['academic_year'])
+            ->where('semester', $data['semester'])
+            ->where('id', '!=', $id)
+            ->exists();
+
+        if ($duplicate) {
+            throw ValidationException::withMessages([
+                'enrollment' => [
+                    'Mahasiswa sudah mengambil mata kuliah ini pada tahun ajaran dan semester yang sama.',
+                ],
+            ]);
         }
 
         DB::table('enrollments')
@@ -320,6 +410,7 @@ class EnrollmentController extends Controller
 
         return response()->json(['message' => 'KRS berhasil diperbarui.']);
     }
+
     public function destroy(int $id)
     {
         $deleted = DB::table('enrollments')
@@ -336,6 +427,7 @@ class EnrollmentController extends Controller
             'message' => 'KRS berhasil dihapus.',
         ]);
     }
+
     public function courseOptions()
     {
         return response()->json(
