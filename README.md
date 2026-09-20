@@ -1,172 +1,378 @@
 # KRS Akademik
 
-Aplikasi satu halaman untuk mengelola pengambilan mata kuliah mahasiswa. Frontend React + Vite, API Laravel 12, dan PostgreSQL. Tabel KRS mengambil data per halaman dari server, sehingga browser tidak memuat jutaan baris sekaligus.
+Aplikasi single-page untuk mengelola proses KRS atau pengambilan mata kuliah mahasiswa. Frontend dibangun dengan React + Vite, backend menggunakan Laravel 12, dan database menggunakan PostgreSQL.
+
+Tabel KRS menggunakan server-side pagination sehingga browser hanya menerima data sesuai halaman yang dibuka dan tidak memuat jutaan baris sekaligus.
+
+## Akses Online
+
+| Layanan | URL |
+| --- | --- |
+| Aplikasi React | [https://krs-akademik.vercel.app](https://krs-akademik.vercel.app) |
+| API Laravel | [https://krs-akademik-production.up.railway.app/api/enrollments](https://krs-akademik-production.up.railway.app/api/enrollments) |
+| Export CSV | [https://krs-akademik-production.up.railway.app/api/enrollments/export](https://krs-akademik-production.up.railway.app/api/enrollments/export) |
+| Repository | [https://github.com/mahirardhr/krs-akademik](https://github.com/mahirardhr/krs-akademik) |
+
+> Deployment publik menggunakan 1.000 data KRS sebagai dataset demonstrasi karena keterbatasan kapasitas layanan hosting. Pengujian skala dilakukan secara lokal menggunakan 5.000.000 baris pada tabel `enrollments`. Seeder terparameterisasi untuk menghasilkan 5 juta data tetap tersedia di repository.
 
 ## Fitur
 
-- Tambah KRS dengan mahasiswa/mata kuliah yang sudah ada atau baru. Insert yang diperlukan dan pembuatan enrollment dilakukan dalam satu transaksi database.
-- Edit tahun ajaran, semester, dan status KRS; hapus enrollment secara permanen. Penghapusan tidak menghapus mahasiswa atau mata kuliah.
-- Pencarian NIM, nama mahasiswa, atau kode MK dengan jeda 400 ms; filter cepat status dan semester.
-- Filter lanjutan pada tujuh kolom, kombinasi AND/OR antarkondisi, urutan beberapa kolom, dan sort lewat header tabel.
-- Pagination server-side dengan 10, 25, 50, atau 100 baris per halaman.
-- Ekspor CSV sesuai filter yang berlaku, termasuk hasil di luar halaman yang sedang dibuka.
+- Create KRS menggunakan mahasiswa dan mata kuliah yang sudah tersedia atau membuat data baru.
+- Create melibatkan entitas `students`, `courses`, dan `enrollments` dalam satu transaksi database yang atomic.
+- Edit tahun ajaran, semester, dan status enrollment.
+- Hard delete enrollment tanpa menghapus mahasiswa dan mata kuliah terkait.
+- Live search pada NIM, nama mahasiswa, dan kode mata kuliah dengan debounce 400 ms.
+- Quick filter berdasarkan status dan semester.
+- Advanced filter untuk seluruh kolom tabel dengan kombinasi logika AND/OR.
+- Multi-column ordering secara berurutan.
+- Sorting ASC/DESC melalui setiap header tabel dengan indikator urutan.
+- Server-side pagination dengan pilihan 10, 25, 50, atau 100 baris per halaman.
+- Streaming export CSV untuk seluruh hasil query sesuai filter, bukan hanya halaman aktif.
+- Validasi ketat pada frontend, backend, dan database.
 
-## Struktur data
+## Teknologi
 
-`enrollments.student_id` merujuk `students.id` dan `enrollments.course_id` merujuk `courses.id`. Kombinasi `(student_id, course_id, academic_year, semester)` unik. Migration ada di `database/migrations/2026_09_17_112119_create_academic_tables.php`.
+- Frontend: React 19 dan Vite
+- Backend: Laravel 12 dan PHP 8.3
+- Database: PostgreSQL
+- Linting/formatting: Oxlint dan Laravel Pint
+- Deployment frontend: Vercel
+- Deployment backend dan database: Railway
 
-## Prasyarat
+## Struktur Data
 
-- PHP 8.3 dengan ekstensi `pdo_pgsql` dan `intl`, Composer, Node.js dan npm, PostgreSQL.
-- Siapkan ruang disk yang cukup untuk database dan CSV besar. Jumlah waktu seed/ekspor bergantung pada perangkat.
+Aplikasi menggunakan tiga tabel akademik utama:
 
-## Setup lokal pada database baru
+- `students`: data mahasiswa.
+- `courses`: data mata kuliah.
+- `enrollments`: data pengambilan mata kuliah.
 
-Jalankan perintah berikut dari folder utama proyek. Contoh memakai PowerShell.
+Relasi foreign key:
 
-1. Buat database PostgreSQL kosong bernama `krs_akademik`, misalnya melalui DBeaver:
+- `enrollments.student_id` → `students.id`
+- `enrollments.course_id` → `courses.id`
 
-   ```sql
-   CREATE DATABASE krs_akademik;
-   ```
+Kombinasi berikut dijaga unik agar satu mahasiswa tidak mengambil mata kuliah yang sama dua kali pada periode yang sama:
 
-2. Siapkan backend:
+```text
+(student_id, course_id, academic_year, semester)
+```
 
-   ```powershell
-   composer install
-   Copy-Item .env.example .env
-   php artisan key:generate
-   ```
+Migration akademik tersedia di:
 
-   Sesuaikan `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, dan `DB_PASSWORD` pada `.env` dengan PostgreSQL lokal. Jangan commit `.env`.
+```text
+database/migrations/2026_09_17_112119_create_academic_tables.php
+```
 
-3. Buat tabel:
+## Perilaku Create, Update, dan Delete
 
-   ```powershell
-   php artisan migrate
-   ```
+### Create dan transaksi atomic
 
-4. Pilih **satu** ukuran seed di `.env` sebelum menjalankan perintah seed pada database kosong:
+Pengguna dapat memilih mahasiswa/mata kuliah yang sudah ada atau membuat data baru. Backend mencari atau membuat data student dan course, kemudian membuat enrollment dalam satu `DB::transaction()`.
 
-   | Tujuan | KRS_STUDENTS | KRS_COURSES | Jumlah KRS |
-   | --- | ---: | ---: | ---: |
-   | Uji cepat | 100 | 10 | 1.000 |
-   | Dataset penilaian | 50000 | 100 | 5.000.000 |
+Jika salah satu operasi gagal, seluruh perubahan dibatalkan sehingga tidak meninggalkan data setengah tersimpan dan foreign key tetap valid.
 
-   `DatabaseSeeder` memanggil `AcademicSeeder`. Seeder menggunakan `generate_series` PostgreSQL dan insert per batch 500 mahasiswa. Sesudah mengatur angka yang diinginkan, jalankan:
+### Update
 
-   ```powershell
-   php artisan db:seed
-   ```
+Update dibatasi pada data enrollment berikut:
 
-   **Jalankan hanya pada tabel akademik kosong.** Mengulang seed pada database berisi data yang sama akan melanggar constraint unik. Jangan memakai `migrate:fresh` pada database yang datanya ingin dipertahankan.
+- Tahun ajaran
+- Semester
+- Status
 
-5. Buktikan jumlah baris di DBeaver:
+Data identitas mahasiswa dan master mata kuliah tidak diubah melalui form edit enrollment.
 
-   ```sql
-   SELECT COUNT(*) AS jumlah_krs FROM enrollments;
-   ```
+### Delete
 
-6. Jalankan backend pada terminal pertama:
+Aplikasi menggunakan hard delete hanya untuk baris enrollment. Data student dan course terkait tetap disimpan sehingga dapat digunakan kembali pada enrollment lain.
 
-   ```powershell
-   php artisan serve --host=127.0.0.1 --port=8000
-   ```
+## Prasyarat Lokal
 
-7. Jalankan frontend pada terminal kedua:
+- PHP 8.3 dengan ekstensi `pdo_pgsql` dan `intl`
+- Composer
+- Node.js dan npm
+- PostgreSQL
+- Ruang disk yang cukup untuk database dan file CSV besar
 
-   ```powershell
-   cd frontend
-   npm install
-   npm run dev
-   ```
+## Setup Lokal
 
-   Buka `http://localhost:5173`. Saat development, `frontend/vite.config.js` meneruskan `/api` ke Laravel di `127.0.0.1:8000`.
+Semua perintah backend berikut dijalankan dari folder utama proyek.
 
-## API dan perilaku query
+### 1. Buat database
+
+Buat database PostgreSQL kosong, misalnya melalui DBeaver:
+
+```sql
+CREATE DATABASE krs_akademik;
+```
+
+### 2. Siapkan backend
+
+```powershell
+composer install
+Copy-Item .env.example .env
+php artisan key:generate
+```
+
+Sesuaikan koneksi PostgreSQL pada `.env`:
+
+```env
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=krs_akademik
+DB_USERNAME=postgres
+DB_PASSWORD=kata_sandi_database
+```
+
+Jangan commit file `.env`.
+
+### 3. Jalankan migration
+
+```powershell
+php artisan migrate
+```
+
+### 4. Pilih ukuran dataset
+
+Atur parameter berikut di `.env` sebelum menjalankan seeder pada database akademik yang masih kosong:
+
+| Tujuan | `KRS_STUDENTS` | `KRS_COURSES` | Jumlah enrollment |
+| --- | ---: | ---: | ---: |
+| Uji cepat | 100 | 10 | 1.000 |
+| Dataset penilaian | 50000 | 100 | 5.000.000 |
+
+Contoh dataset 5 juta:
+
+```env
+KRS_STUDENTS=50000
+KRS_COURSES=100
+```
+
+`DatabaseSeeder` memanggil `AcademicSeeder`. Seeder menggunakan `generate_series` PostgreSQL dan memproses enrollment per batch 500 mahasiswa.
+
+Jalankan:
+
+```powershell
+php artisan db:seed
+```
+
+> Jalankan seeder hanya pada tabel akademik kosong. Menjalankan ulang data yang sama akan melanggar unique constraint. Jangan menggunakan `migrate:fresh` pada database yang datanya ingin dipertahankan karena perintah tersebut menghapus seluruh tabel.
+
+### 5. Buktikan jumlah data
+
+Jalankan melalui DBeaver atau PostgreSQL client:
+
+```sql
+SELECT COUNT(*) AS jumlah_krs FROM enrollments;
+```
+
+Hasil pengujian dataset penuh:
+
+```text
+jumlah_krs = 5000000
+```
+
+Jumlah data juga dapat diperiksa melalui Laravel:
+
+```powershell
+php artisan db:show --counts
+```
+
+### Bukti pengujian 5 juta data
+
+Pengujian skala penuh dilakukan pada PostgreSQL lokal. Screenshot berikut menunjukkan tabel `enrollments` berisi 5.000.000 baris:
+
+![Bukti database lokal berisi 5 juta enrollment](docs/database-5m-proof.png)
+
+> Deployment publik menggunakan dataset demo yang lebih kecil, sedangkan pengujian performa skala penuh dilakukan secara lokal dengan source code, migration, seeder, dan query yang sama.
+
+### 6. Jalankan backend
+
+```powershell
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+### 7. Jalankan frontend
+
+Buka terminal kedua:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Buka [http://localhost:5173](http://localhost:5173).
+
+Jika `VITE_API_URL` tidak diatur, `frontend/vite.config.js` meneruskan request `/api` ke Laravel lokal pada `127.0.0.1:8000`.
+
+Untuk menghubungkan frontend lokal ke API Railway, buat `frontend/.env.local`:
+
+```env
+VITE_API_URL=https://krs-akademik-production.up.railway.app
+```
+
+Restart `npm run dev` setelah mengubah environment variable Vite.
+
+## Endpoint API
 
 | Method | Rute | Fungsi |
 | --- | --- | --- |
-| GET | `/api/enrollments` | Daftar, pencarian, filter, sort, dan pagination |
-| POST | `/api/enrollments` | Buat KRS secara transaksional |
-| PUT | `/api/enrollments/{id}` | Ubah data enrollment |
+| GET | `/api/enrollments` | List, search, filter, sorting, dan pagination |
+| POST | `/api/enrollments` | Membuat KRS secara transaksional |
+| PUT | `/api/enrollments/{id}` | Memperbarui enrollment |
 | DELETE | `/api/enrollments/{id}` | Hard delete enrollment |
-| GET | `/api/courses/options` | Pilihan mata kuliah |
-| GET | `/api/enrollments/export` | CSV seluruh data sesuai filter |
+| GET | `/api/courses/options` | Daftar pilihan mata kuliah |
+| GET | `/api/enrollments/export` | Streaming CSV seluruh hasil sesuai filter |
 
-Quick filter (`status`, `semester`) dan pencarian (`search`) selalu digabung dengan AND. Pada filter lanjutan, `filter_logic=and` mewajibkan semua kondisi cocok; `filter_logic=or` menerima baris yang cocok pada salah satu kondisi lanjutan. Hasil filter lanjutan tetap digabung dengan quick filter/pencarian memakai AND. Parameter `orders` mengurutkan beberapa kolom secara berurutan, lalu `id` menjadi penentu urutan akhir yang stabil.
+Parameter list utama:
 
-Validasi form dilakukan di frontend dan backend. Database juga menjaga foreign key, nilai semester/status, rentang SKS, dan kombinasi KRS yang unik.
+| Parameter | Keterangan |
+| --- | --- |
+| `page` | Nomor halaman |
+| `page_size` | Jumlah baris, maksimal 100 |
+| `search` | Live search NIM, nama mahasiswa, dan kode MK |
+| `status` | Quick filter status |
+| `semester` | Quick filter semester |
+| `sort_by` | Kolom sorting dari whitelist |
+| `direction` | `asc` atau `desc` |
+| `filters` | Kumpulan advanced filter |
+| `filter_logic` | `and` atau `or` |
+| `orders` | Urutan beberapa kolom |
 
-## Ekspor dan performa
+Quick filter dan pencarian selalu digabung menggunakan AND. Untuk advanced filter:
 
-API ekspor memakai filter yang sama dengan daftar, tetapi tidak membatasi hasil berdasarkan `page` atau `page_size`. Respons CSV ditulis bertahap memakai `streamDownload` dan `chunkById(5000)` menurut ID enrollment sehingga tidak menampung seluruh baris dalam memori PHP. CSV diberi UTF-8 BOM agar mudah dibaca Excel. Urutan ekspor berdasarkan ID, termasuk ketika tabel sedang diurutkan dengan kolom lain.
+- `filter_logic=and`: semua kondisi lanjutan harus cocok.
+- `filter_logic=or`: minimal satu kondisi lanjutan harus cocok.
 
-Primary key serta indeks pada NIM, email, kode mata kuliah, dan gabungan tahun ajaran/semester/status/id dibuat oleh migration. Pencarian `ILIKE` dengan wildcard di depan dan sort join tertentu dapat lebih lambat pada 5 juta baris; pengukuran query dan indeks tambahan perlu disesuaikan dengan beban server deployment. Ekspor 5 juta baris juga membutuhkan waktu, ruang disk di sisi penerima, dan koneksi HTTP yang cukup lama. Excel biasa tidak dapat menampilkan 5 juta baris dalam satu sheet; periksa file dengan alat yang mendukung file besar.
+Advanced filter tetap digabung dengan quick filter dan pencarian menggunakan AND. Multi-column order diterapkan sesuai urutan parameter `orders`, kemudian `enrollments.id` menjadi urutan terakhir agar hasil stabil.
 
-## Non-Functional Requirements
+## Validasi
 
-### Performa
+Validasi dilakukan di frontend dan backend.
 
-Aplikasi diuji menggunakan PostgreSQL dengan 5.000.000 baris pada tabel
-`enrollments`, 50.002 baris pada tabel `students`, dan 102 baris pada tabel
-`courses`.
+### Students
+
+- NIM wajib, unik, 8–12 digit angka, tanpa spasi.
+- Nama wajib, 3–100 karakter.
+- Email wajib, valid, dan unik.
+
+### Courses
+
+- Kode wajib, unik, dengan pola `[A-Z]{2,4}[0-9]{3}`.
+- Nama wajib, 3–120 karakter.
+- SKS wajib berupa integer 1–6.
+
+### Enrollments
+
+- Tahun ajaran wajib menggunakan format `YYYY/YYYY`.
+- Semester hanya `GANJIL` atau `GENAP`.
+- Status hanya `DRAFT`, `SUBMITTED`, `APPROVED`, atau `REJECTED`.
+- Kombinasi student, course, tahun ajaran, dan semester tidak boleh duplikat.
+
+Database turut menjaga foreign key, unique constraint, rentang SKS, semester, dan status.
+
+## Advanced Filter dan Multi-Column Order
+
+Advanced filter tersedia untuk tujuh kolom yang ditampilkan:
+
+- NIM
+- Nama mahasiswa
+- Kode mata kuliah
+- Nama mata kuliah
+- Semester
+- Tahun ajaran
+- Status
+
+Beberapa filter dapat digunakan bersamaan dengan logika AND atau OR. Multi-column order dipisahkan dari logika filter: urutan pertama menjadi prioritas utama, dilanjutkan urutan berikutnya.
+
+## Export CSV
+
+Endpoint export menggunakan filter yang sama dengan endpoint list, tetapi tidak membatasi hasil berdasarkan `page` atau `page_size`.
+
+Respons CSV ditulis secara bertahap menggunakan `streamDownload` dan `chunkById(5000)` berdasarkan ID enrollment. Strategi ini mencegah seluruh dataset dimuat sekaligus ke memori PHP. CSV menggunakan UTF-8 BOM agar lebih mudah dibuka dengan Excel.
+
+Microsoft Excel memiliki batas jumlah baris per sheet yang lebih kecil dari 5 juta. File lengkap tetap dapat diperiksa menggunakan text editor untuk file besar, command-line tools, database tools, atau diproses secara bertahap.
+
+## Performa dan Dataset 5 Juta
+
+Pengujian lokal dilakukan menggunakan:
+
+| Tabel | Jumlah data |
+| --- | ---: |
+| `enrollments` | 5.000.000 |
+| `students` | 50.002 |
+| `courses` | 102 |
+
+Jumlah student dan course mencakup data tambahan hasil pengujian CRUD.
 
 Hasil pengujian lokal:
 
 | Operasi | Waktu respons |
-|---|---:|
-| Membuka halaman pertama (25 data) | ±975 ms |
+| --- | ---: |
+| Halaman pertama, 25 data | ±975 ms |
 | Filter status dan semester | ±595 ms |
-| Pencarian mahasiswa | ±1.685 ms |
+| Live search nama mahasiswa | ±1,685 detik |
 | Sorting nama mahasiswa | ±926 ms |
 
-Hasil pengujian dapat berbeda tergantung perangkat, konfigurasi PostgreSQL,
-dan kondisi cache database.
+Hasil dapat berbeda berdasarkan perangkat, konfigurasi PostgreSQL, kondisi cache, dan resource server.
 
-Strategi performa yang digunakan:
+Strategi performa:
 
-- Pagination dijalankan di backend menggunakan parameter `page` dan `page_size`.
-- Jumlah data yang dikirim ke frontend dibatasi maksimal 100 baris per halaman.
-- Kolom relasi dan kolom yang sering digunakan untuk filter memiliki index.
-- PostgreSQL `pg_trgm` dan GIN index digunakan untuk mempercepat pencarian
-  `ILIKE` pada NIM, nama mahasiswa, kode mata kuliah, dan nama mata kuliah.
-- Kolom sorting dibatasi menggunakan whitelist agar aman dan terkontrol.
-- Export CSV menggunakan streaming dan `chunkById()` sehingga data tidak
-  dimuat seluruhnya ke memori aplikasi.
-- Pencarian dilakukan terhadap ID mahasiswa dan mata kuliah terlebih dahulu,
-  kemudian digunakan untuk menyaring data enrollment.
-
-### Keamanan Dasar
-
-- Semua payload Create dan Update divalidasi di backend Laravel.
-- Frontend juga melakukan validasi untuk memberikan umpan balik lebih cepat.
-- Query database menggunakan Laravel Query Builder dan parameter binding.
+- Pagination dijalankan di backend menggunakan `page` dan `page_size`.
+- Respons list dibatasi maksimal 100 baris per halaman.
+- Foreign key dan kolom yang sering digunakan untuk filter memiliki index.
+- PostgreSQL `pg_trgm` dan GIN index mempercepat pencarian `ILIKE` pada NIM, nama mahasiswa, kode mata kuliah, dan nama mata kuliah.
+- Pencarian menentukan ID student/course yang cocok terlebih dahulu sebelum menyaring enrollment.
 - Kolom sorting dan filtering dibatasi dengan whitelist.
-- CORS hanya mengizinkan origin frontend yang tercantum pada
-  `CORS_ALLOWED_ORIGINS`.
-- Konfigurasi production wajib menggunakan `APP_DEBUG=false`.
-- File `.env` tidak disimpan ke Git.
+- Export CSV menggunakan streaming dan `chunkById()`.
 
-### Kualitas Kode
+## Non-Functional Requirements
 
-- Backend diformat menggunakan Laravel Pint.
+### Keamanan dasar
+
+- Semua payload Create dan Update divalidasi oleh Laravel.
+- Frontend melakukan validasi untuk memberi umpan balik lebih cepat.
+- Query menggunakan Laravel Query Builder dan parameter binding.
+- Kolom sorting/filtering dibatasi menggunakan whitelist.
+- CORS hanya mengizinkan origin pada `CORS_ALLOWED_ORIGINS`.
+- Production menggunakan `APP_DEBUG=false`.
+- `.env` dan kredensial tidak disimpan ke Git.
+
+### Kualitas kode
+
+- Backend diformat dan diperiksa menggunakan Laravel Pint.
 - Frontend diperiksa menggunakan Oxlint.
-- Frontend production build diperiksa menggunakan Vite.
-- Error aplikasi dicatat melalui sistem logging Laravel pada
-  `storage/logs/laravel.log`.
-- Controller, migration, seeder, route, dan komponen frontend dipisahkan
-  berdasarkan tanggung jawabnya.
+- Production build diperiksa menggunakan Vite.
+- Migration, seeder, controller, routes, dan komponen React dipisahkan berdasarkan tanggung jawab.
 
-### Error Logging
+Perintah pemeriksaan:
 
-Laravel menggunakan kanal log `stack` dan `single`. Error backend tersimpan
-pada:
+```powershell
+./vendor/bin/pint --test
 
-```text`
+cd frontend
+npm run lint
+npm run build
+```
+
+### Error handling dan logging
+
+- API mengembalikan HTTP status yang sesuai, termasuk `201`, `404`, dan `422`.
+- Payload invalid ditolak backend dengan detail validasi JSON.
+- Error validasi ditampilkan kembali pada UI.
+- Laravel menggunakan channel logging sesuai konfigurasi environment.
+
+Log lokal tersedia di:
+
+```text
 storage/logs/laravel.log
+```
 
-## Build dan deployment
+Pada Railway, aplikasi menggunakan `LOG_CHANNEL=stderr` sehingga log dapat diperiksa melalui deployment logs.
+
+## Build Frontend
 
 ```powershell
 cd frontend
@@ -174,6 +380,57 @@ npm ci
 npm run build
 ```
 
-Deploy Laravel dengan document root mengarah ke folder `public`, gunakan PostgreSQL, konfigurasi `.env` produksi (`APP_DEBUG=false`, `APP_KEY` tersedia, dan koneksi DB benar), lalu jalankan `php artisan migrate --force`. Sajikan isi `frontend/dist` sebagai halaman aplikasi dan teruskan permintaan `/api/*` pada domain yang sama ke Laravel. Proxy Vite di atas hanya untuk development, bukan pengaturan server produksi. Siapkan timeout dan kapasitas disk yang cukup jika ekspor penuh 5 juta baris akan diunduh langsung.
+Hasil build tersedia pada `frontend/dist`.
 
-**URL aplikasi online:** isi setelah deployment selesai.
+## Deployment
+
+### Backend dan PostgreSQL di Railway
+
+Konfigurasi utama:
+
+```env
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://krs-akademik-production.up.railway.app
+LOG_CHANNEL=stderr
+DB_CONNECTION=pgsql
+DB_URL=${{Postgres.DATABASE_URL}}
+CORS_ALLOWED_ORIGINS=https://krs-akademik.vercel.app
+```
+
+Pre-deploy command:
+
+```bash
+php artisan migrate --force
+```
+
+Seeder demo publik dijalankan dengan:
+
+```env
+KRS_STUDENTS=100
+KRS_COURSES=10
+```
+
+```bash
+php artisan db:seed --force
+```
+
+Jangan menyimpan `APP_KEY`, `DATABASE_URL`, atau kredensial database di repository.
+
+### Frontend di Vercel
+
+| Pengaturan | Nilai |
+| --- | --- |
+| Root Directory | `frontend` |
+| Framework Preset | Vite |
+| Build Command | `npm run build` |
+| Output Directory | `dist` |
+| Environment Variable | `VITE_API_URL=https://krs-akademik-production.up.railway.app` |
+
+`VITE_API_URL` bersifat publik karena berisi alamat API publik, bukan kredensial.
+
+## Catatan Deployment Publik
+
+Deployment publik sengaja menggunakan dataset demonstrasi 1.000 enrollment agar stabil pada kapasitas hosting yang tersedia. Kemampuan dataset besar diuji lokal menggunakan 5.000.000 enrollment dengan kode migration, seeder, query, index, pagination, dan export yang sama seperti deployment.
+
+Jika kapasitas Railway ditingkatkan, dataset online dapat dibuat ulang menjadi 5 juta dengan parameter seeder tanpa mengubah frontend atau endpoint API.
